@@ -5,7 +5,7 @@ import shutil
 import sys
 import urllib.request
 import zipfile
-import json
+from ffmpeg_manager import FFmpegManager
 
 # --- Custom Exceptions ---
 
@@ -45,42 +45,11 @@ def get_resource_path(relative_path):
         base_path = get_program_dir()
     return os.path.join(base_path, relative_path)
 
-CONFIG_FILE = "config.json"
-
 # --- Core Logic ---
 class SubtitleLogic:
     def __init__(self, logger=None):
         self.logger = logger
-        self.config = self._load_config()
-        self.ffmpeg_path = self.config.get("ffmpeg_path")
-
-    def _load_config(self):
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r') as f:
-                    return json.load(f)
-            except Exception as e:
-                self.log(f"Errore nel caricamento della configurazione: {e}")
-        return {}
-
-    def _save_config(self):
-        try:
-            with open(CONFIG_FILE, 'w') as f:
-                json.dump(self.config, f, indent=4)
-        except Exception as e:
-            self.log(f"Errore nel salvataggio della configurazione: {e}")
-
-    def set_ffmpeg_path(self, path):
-        """ Sets and persists the FFmpeg executable path """
-        if not path or not os.path.exists(path):
-            self.log(f"Percorso FFmpeg non valido: {path}")
-            return False
-        
-        self.ffmpeg_path = path
-        self.config["ffmpeg_path"] = path
-        self._save_config()
-        self.log(f"Percorso FFmpeg aggiornato a: {path}")
-        return True
+        self.ffmpeg_mgr = FFmpegManager()
 
     def log(self, msg):
         if self.logger and hasattr(self.logger, 'log'):
@@ -89,18 +58,15 @@ class SubtitleLogic:
             print(msg)
 
     def ensure_dependencies(self):
-        """Checks for ffmpeg and nodejs. Downloads ffmpeg locally if missing."""
-        # Check configured path first, then fallback to program dir
-        ffmpeg_exe = self.ffmpeg_path or os.path.join(get_program_dir(), "ffmpeg", "bin", "ffmpeg.exe")
-        ffmpeg_exists = os.path.exists(ffmpeg_exe) if ffmpeg_exe else False
+        """Checks for ffmpeg and nodejs."""
+        # Use the manager to check/install ffmpeg
+        ffmpeg_exists = os.path.exists(self.ffmpeg_mgr.ffmpeg_path or self.ffmpeg_mgr._get_default_path())
 
         if not ffmpeg_exists:
-            self.log("FFmpeg non trovato.")
-            if not self._download_ffmpeg():
+            self.log("FFmpeg non trovato. Tentativo di installazione...")
+            if not self.ffmpeg_mgr.download_and_install(get_program_dir()):
                 raise DependencyError("Impossibile scaricare FFmpeg. È necessario per la conversione in .srt")
-            # Update path after download
-            ffmpeg_exe = os.path.join(get_program_dir(), "ffmpeg", "bin", "ffmpeg.exe")
-            ffmpeg_exists = os.path.exists(ffmpeg_exe)
+            ffmpeg_exists = True
 
         node_path = None
         try:
@@ -126,64 +92,8 @@ class SubtitleLogic:
 
         return ffmpeg_exists, node_path
 
-    def _download_ffmpeg(self):
-        url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip"
-        prog_dir = get_program_dir()
-        # Create an organized directory for ffmpeg
-        install_dir = os.path.join(prog_dir, "ffmpeg")
-        os.makedirs(install_dir, exist_ok=True)
-        
-        zip_path = os.path.join(prog_dir, "ffmpeg.zip")
-        
-        try:
-            self.log("Download di FFmpeg in corso (circa 100MB)...")
-            urllib.request.urlretrieve(url, zip_path)
-            
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                bin_folder = None
-                for member in zip_ref.namelist():
-                    if member.endswith('bin/') or ( '/bin/' in member and member.split('/')[1] == 'bin'):
-                        bin_folder = '/'.join(member.split('/')[:-1]) + '/' 
-                        break
-                
-                if not bin_folder:
-                    for member in zip_ref.namelist():
-                        if member.endswith('ffmpeg.exe'):
-                            bin_folder = os.path.dirname(member) + '/'
-                            break
- 
-                if bin_folder:
-                    self.log(f"Estrazione di FFmpeg in {install_dir}...")
-                    # We want to extract the contents of the zip's bin folder into install_dir/bin
-                    target_bin_dir = os.path.join(install_dir, "bin")
-                    os.makedirs(target_bin_dir, exist_ok=True)
-
-                    for member in zip_ref.namelist():
-                        if member.startswith(bin_folder):
-                            filename = os.path.basename(member)
-                            if filename:
-                                source = zip_ref.open(member)
-                                target = open(os.path.join(target_bin_dir, filename), 'wb')
-                                shutil.copyfileobj(source, target)
-                                target.close()
-                                source.close()
-                else:
-                    raise Exception("Impossibile trovare la cartella bin nell'archivio FFmpeg.")
-            
-            os.remove(zip_path)
-            # Update config with the new path
-            ffmpeg_exe = os.path.join(target_bin_dir, "ffmpeg.exe")
-            self.set_ffmpeg_path(ffmpeg_exe)
-            self.log("FFmpeg installato correttamente in cartella dedicata.")
-            return True
-        except Exception as e:
-            if os.path.exists(zip_path):
-                os.remove(zip_path)
-            self.log(f"Errore durante il download di FFmpeg: {e}")
-            return False
-
-
     def get_available_subtitles(self, url):
+
         """Fetches available subtitles for a given video."""
         ydl_opts = {'skip_download': True}
         try:
@@ -213,7 +123,7 @@ class SubtitleLogic:
     def convert_vtt_to_srt(self, vtt_path):
         srt_path = os.path.splitext(vtt_path)[0] + ".srt"
         try:
-            ffmpeg_exe = self.ffmpeg_path or os.path.join(get_program_dir(), "ffmpeg", "bin", "ffmpeg.exe")
+            ffmpeg_exe = self.ffmpeg_mgr.ffmpeg_path or self.ffmpeg_mgr._get_default_path()
             if not os.path.exists(ffmpeg_exe):
                 raise DependencyError(f"FFmpeg non trovato in {ffmpeg_exe}")
  
@@ -250,7 +160,7 @@ class SubtitleLogic:
             if not os.path.exists(dest):
                 os.makedirs(dest)
 
-            ffmpeg_abs_path = self.ffmpeg_path or os.path.join(get_program_dir(), "ffmpeg", "bin")
+            ffmpeg_abs_path = os.path.dirname(self.ffmpeg_mgr.ffmpeg_path or self.ffmpeg_mgr._get_default_path())
             
             # Construct subtitle language list based on filters
             # We can't easily filter 'auto' vs 'manual' in ydl_opts directly for download, 

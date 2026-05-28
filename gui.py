@@ -4,6 +4,7 @@ import threading
 import os
 import subprocess
 from logic import SubtitleLogic, SubtitleError, VideoNotFoundError, SubtitlesUnavailableError, NetworkError, DependencyError
+from ffmpeg_manager import FFmpegManager
 
 # Set appearance
 ctk.set_appearance_mode("dark")
@@ -14,9 +15,10 @@ class SubtitleDownloaderGUI(ctk.CTk):
         super().__init__()
 
         self.title("YouTube Subtitle Downloader Pro")
-        self.geometry("700x750")
+        self.geometry("700x800")
 
         self.logic = SubtitleLogic(logger=self)
+        self.ffmpeg_mgr = FFmpegManager()
         
         # Grid Configuration
         self.grid_columnconfigure(0, weight=1)
@@ -97,7 +99,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.action_frame.grid_columnconfigure(0, weight=1)
 
         self.download_btn = ctk.CTkButton(self.action_frame, text="Scarica Sottotitoli", 
-                                         font=("Segoe UI", 14, "bold"), height=40, command=self.start_download_thread)
+                                              font=("Segoe UI", 14, "bold"), height=40, border_width=0, command=self.start_download_thread)
         self.download_btn.grid(row=0, column=0, padx=0, pady=5, sticky="ew")
 
         self.progress_bar = ctk.CTkProgressBar(self.action_frame)
@@ -107,10 +109,9 @@ class SubtitleDownloaderGUI(ctk.CTk):
         # --- Log Section ---
         self.log_label = ctk.CTkLabel(self, text="Log di sistema:", font=("Segoe UI", 12))
         self.log_label.grid(row=8, column=0, padx=20, pady=(10, 0), sticky="w")
- 
+
         self.log_area = ctk.CTkTextbox(self, state='disabled', font=("Consolas", 12))
         self.log_area.grid(row=9, column=0, padx=20, pady=(0, 10), sticky="nsew")
-
 
         # --- FFmpeg Configuration Section ---
         self.ffmpeg_label = ctk.CTkLabel(self, text="Configurazione FFmpeg:", font=("Segoe UI", 14, "bold"))
@@ -120,21 +121,31 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.ffmpeg_frame.grid(row=6, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.ffmpeg_frame.grid_columnconfigure(0, weight=1)
 
+        # Version display
+        self.ffmpeg_ver_label = ctk.CTkLabel(self.ffmpeg_frame, text="Versione: Caricamento...", font=("Segoe UI", 12, "italic"))
+        self.ffmpeg_ver_label.grid(row=0, column=0, padx=(0, 10), sticky="w")
+
         self.ffmpeg_entry = ctk.CTkEntry(self.ffmpeg_frame)
-        self.ffmpeg_entry.grid(row=0, column=0, padx=(0, 10), sticky="ew")
-        # Initialize with current path from logic
-        initial_ffmpeg = self.logic.ffmpeg_path or "Non configurato / Automatico"
+        self.ffmpeg_entry.grid(row=1, column=0, padx=(0, 10), sticky="ew")
+        initial_ffmpeg = self.ffmpeg_mgr.ffmpeg_path or "Non configurato / Automatico"
         self.ffmpeg_entry.insert(0, initial_ffmpeg)
 
         self.ffmpeg_browse_btn = ctk.CTkButton(self.ffmpeg_frame, text="Sfoglia", width=80, command=self.browse_ffmpeg)
-        self.ffmpeg_browse_btn.grid(row=0, column=1, padx=(0, 10))
+        self.ffmpeg_browse_btn.grid(row=1, column=1, padx=(0, 10))
 
         self.ffmpeg_save_btn = ctk.CTkButton(self.ffmpeg_frame, text="Salva", width=80, fg_color="#27ae60", hover_color="#2ecc71", command=self.save_ffmpeg_path)
-        self.ffmpeg_save_btn.grid(row=0, column=2)
+        self.ffmpeg_save_btn.grid(row=1, column=2)
+
+        self.ffmpeg_update_btn = ctk.CTkButton(self.ffmpeg_frame, text="Aggiorna FFmpeg", width=150, fg_color="#e67e22", hover_color="#d35400", command=self.update_ffmpeg)
+        self.ffmpeg_update_btn.grid(row=2, column=0, columnspan=3, padx=(0, 10), pady=(10, 0), sticky="e")
+
+        # Initial version check
+        self.refresh_ffmpeg_version()
 
         # --- Bottom Actions ---
         self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.bottom_frame.grid(row=10, column=0, padx=20, pady=(0, 20), sticky="ew")
+
         
         self.open_folder_btn = ctk.CTkButton(self.bottom_frame, text="Apri Cartella", 
                                             fg_color="#7f8c8d", hover_color="#95a5a6",
@@ -178,11 +189,45 @@ class SubtitleDownloaderGUI(ctk.CTk):
             messagebox.showwarning("Attenzione", "Inserisci un percorso valido per FFmpeg.")
             return
         
-        if self.logic.set_ffmpeg_path(path):
-            self.log(f"Configurazione FFmpeg salvata correttamente.")
+        if self.ffmpeg_mgr.set_ffmpeg_path(path):
+            self.log("Configurazione FFmpeg salvata correttamente.")
             messagebox.showinfo("Successo", "Percorso FFmpeg salvato con successo!")
+            self.refresh_ffmpeg_version()
         else:
             messagebox.showerror("Errore", "Il percorso selezionato non è valido o il file non esiste.")
+
+    def refresh_ffmpeg_version(self):
+        def task():
+            version = self.ffmpeg_mgr.get_local_version()
+            # Update UI from thread safely
+            self.after(0, lambda: self.ffmpeg_ver_label.configure(text=f"Versione: {version or 'Sconosciuta'}"))
+        
+        threading.Thread(target=task, daemon=True).start()
+
+    def update_ffmpeg(self):
+        def task():
+            self.log("Controllo aggiornamenti FFmpeg in corso...")
+            update_info = self.ffmpeg_mgr.check_for_update()
+            
+            if update_info["update_available"]:
+                msg = f"Nuova versione disponibile: {update_info['remote']} (Installata: {update_info['local']})\nVuoi aggiornare?"
+                if messagebox.askyesno("Aggiornamento Disponibile", msg):
+                    self.log("Download e installazione di FFmpeg in corso...")
+                    success = self.ffmpeg_mgr.download_and_install(os.path.abspath("."))
+                    if success:
+                        self.log("FFmpeg aggiornato con successo!")
+                        messagebox.showinfo("Successo", "FFmpeg è stato aggiornato all'ultima versione.")
+                        self.after(0, self.refresh_ffmpeg_version)
+                    else:
+                        self.log("Errore durante l'aggiornamento di FFmpeg.")
+                        messagebox.showerror("Errore", "Impossibile aggiornare FFmpeg automaticamente.")
+                else:
+                    self.log("Aggiornamento annullato dall'utente.")
+            else:
+                self.log(f"FFmpeg è già aggiornato (Versione: {update_info['local']}).")
+                messagebox.showinfo("Info", "FFmpeg è già alla versione più recente.")
+
+        threading.Thread(target=task, daemon=True).start()
 
     def open_dest_folder(self):
 
@@ -302,6 +347,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
                 messagebox.showerror("Errore Critico", f"Si è verificato un errore imprevisto:\n{e}")
             finally:
                 self.download_btn.configure(state="normal")
+                self.focus() # Remove focus from button to avoid visual artifacts (black line)
 
         threading.Thread(target=task, daemon=True).start()
 

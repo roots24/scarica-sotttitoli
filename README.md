@@ -1,54 +1,54 @@
-# YouTube Subtitle Downloader
+# YouTube Subtitle Downloader Pro
 
-Questo programma permette di scaricare i sottotitoli (sia manuali che automatici) da un video di YouTube o da YouTube Shorts, senza dover scaricare l'intero file video.
+A professional tool for downloading and converting subtitles from YouTube videos and Shorts into high-quality formats like `.srt`, `.vtt`, or `.txt`.
 
-## Requisiti
+## 🚀 Features
 
-Il programma richiede:
-1. **Python** installato sul sistema.
-2. **Node.js (JS Runtime)**: Utilizzato da `yt-dlp` per l'estrazione dei dati. Il programma tenterà di installarlo automaticamente tramite Chocolatey se non viene trovato nel sistema.
+- **Language Detection**: Automatically fetches all available subtitles (manual and automatic) for any given video.
+- **Smart Conversion**: Integrates FFmpeg to seamlessly convert WebVTT (`.vtt`) files to SubRip (`.srt`).
+- **Automatic Dependency Management**: 
+  - Automatically downloads and installs the correct version of **FFmpeg** if not found.
+  - Attempts to install **Node.js** (JS Runtime) via Chocolatey for enhanced `yt-dlp` compatibility.
+- **Modern GUI**: A clean, dark-themed interface built with `customtkinter`.
+- **Flexible Filtering**: Choose between manual subtitles, automatically generated ones, or both.
+- **Progress Tracking**: Real-time progress bar and detailed system logs.
 
-*Nota: Non è più necessario installare FFmpeg manualmente; il programma lo scaricherà e configurerà automaticamente al primo avvio.*
+## 🛠️ Technical Architecture
 
-## Installazione
+The application is divided into three main layers:
+1. **GUI (`gui.py`)**: Manages the user interface, input validation, and asynchronous task execution using threading to keep the UI responsive.
+2. **Core Logic (`logic.py`)**: Handles interaction with `yt-dlp`, manages subtitle extraction, and performs final file cleanup and conversion.
+3. **FFmpeg Manager (`ffmpeg_manager.py`)**: A dedicated utility for managing FFmpeg binaries, including version checking against GitHub releases and configuration persistence in `config.json`.
 
-1. Apri il terminale nella cartella del progetto.
-2. Installa la libreria necessaria utilizzando pip:
+## 📦 Installation & Requirements
 
-```bash
-pip install -r requirements.txt
-```
+### Prerequisites
+- Python 3.8+
+- Windows OS (Currently optimized for Windows)
 
-## Utilizzo
+### Setup
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-repo/scarica-sottotitoli.git
+   cd scarica-sottitoli
+   ```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Run the application:
+   ```bash
+   python gui.py
+   ```
 
-**Nota per il primo avvio:** Al primo avvio (o se i componenti sono mancanti), il programma scaricherà automaticamente i binari di **FFmpeg** (circa 100MB) e tenterà di configurare il runtime JavaScript. Assicurati di avere una connessione internet attiva.
+## 📖 Usage
 
-Avvia l'interfaccia grafica con il seguente comando:
+1. **Paste URL**: Insert the YouTube link into the URL field.
+2. **Fetch Languages**: Click "Carica Lingue Disponibili" to see what's available for that specific video.
+3. **Select Options**: Choose your preferred language, format (`srt`, `vtt`, `txt`), and filter (Manual/Auto).
+4. **Set Destination**: Pick the folder where subtitles should be saved.
+5. **Download**: Click "Scarica Sottotitoli". The app will handle everything from dependency checks to file conversion.
 
-```bash
-python download_subs.py
-```
+## ⚙️ Configuration
 
-Si aprirà una finestra dove potrai:
-1. Inserire l'**URL del video** di YouTube o Short (puoi usare il tasto **"Incolla"** per inserirlo rapidamente dalla clipboard).
-2. Scegliere il **codice della lingua** (es. `it` per italiano, `en` per inglese, `uk` per ucraino).
-3. Selezionare la **cartella di destinazione** tramite il tasto "Sfoglia".
-4. Monitorare l'avanzamento del processo direttamente nel **Log del programma** integrato nella finestra.
-
-I sottotitoli verranno salvati in formato `.srt` con il nome del video nella cartella scelta.
-
-## Compilazione in Eseguibile (.exe)
-
-Per trasformare il programma in un file eseguibile per Windows, puoi utilizzare **PyInstaller**.
-
-1. Installa PyInstaller:
-```bash
-pip install pyinstaller
-```
-
-2. Esegui il comando di impacchettamento (include i binari di FFmpeg all'interno dell'exe):
-```bash
-pyinstaller --noconsole --onefile --add-data "ffmpeg.exe;." --add-data "ffplay.exe;." --add-data "ffprobe.exe;." download_subs.py
-```
-
-Il file eseguibile verrà generato nella cartella `dist/`.
+The app saves the FFmpeg path in `config.json` to avoid redundant searches on startup. You can manually update this path via the GUI's "Configurazione FFmpeg" section.
