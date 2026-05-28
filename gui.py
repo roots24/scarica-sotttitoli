@@ -20,7 +20,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
         
         # Grid Configuration
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(6, weight=1) # Log area grows
+        self.grid_rowconfigure(9, weight=1) # Log area grows
 
         # --- URL Section ---
         self.url_label = ctk.CTkLabel(self, text="URL Video YouTube / Short:", font=("Segoe UI", 14, "bold"))
@@ -93,7 +93,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
 
         # --- Actions Section ---
         self.action_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.action_frame.grid(row=5, column=0, padx=20, pady=10, sticky="ew")
+        self.action_frame.grid(row=7, column=0, padx=20, pady=10, sticky="ew")
         self.action_frame.grid_columnconfigure(0, weight=1)
 
         self.download_btn = ctk.CTkButton(self.action_frame, text="Scarica Sottotitoli", 
@@ -106,14 +106,35 @@ class SubtitleDownloaderGUI(ctk.CTk):
 
         # --- Log Section ---
         self.log_label = ctk.CTkLabel(self, text="Log di sistema:", font=("Segoe UI", 12))
-        self.log_label.grid(row=6, column=0, padx=20, pady=(10, 0), sticky="w")
-
+        self.log_label.grid(row=8, column=0, padx=20, pady=(10, 0), sticky="w")
+ 
         self.log_area = ctk.CTkTextbox(self, state='disabled', font=("Consolas", 12))
-        self.log_area.grid(row=7, column=0, padx=20, pady=(0, 10), sticky="nsew")
+        self.log_area.grid(row=9, column=0, padx=20, pady=(0, 10), sticky="nsew")
+
+
+        # --- FFmpeg Configuration Section ---
+        self.ffmpeg_label = ctk.CTkLabel(self, text="Configurazione FFmpeg:", font=("Segoe UI", 14, "bold"))
+        self.ffmpeg_label.grid(row=5, column=0, padx=20, pady=(20, 5), sticky="w")
+
+        self.ffmpeg_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.ffmpeg_frame.grid(row=6, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.ffmpeg_frame.grid_columnconfigure(0, weight=1)
+
+        self.ffmpeg_entry = ctk.CTkEntry(self.ffmpeg_frame)
+        self.ffmpeg_entry.grid(row=0, column=0, padx=(0, 10), sticky="ew")
+        # Initialize with current path from logic
+        initial_ffmpeg = self.logic.ffmpeg_path or "Non configurato / Automatico"
+        self.ffmpeg_entry.insert(0, initial_ffmpeg)
+
+        self.ffmpeg_browse_btn = ctk.CTkButton(self.ffmpeg_frame, text="Sfoglia", width=80, command=self.browse_ffmpeg)
+        self.ffmpeg_browse_btn.grid(row=0, column=1, padx=(0, 10))
+
+        self.ffmpeg_save_btn = ctk.CTkButton(self.ffmpeg_frame, text="Salva", width=80, fg_color="#27ae60", hover_color="#2ecc71", command=self.save_ffmpeg_path)
+        self.ffmpeg_save_btn.grid(row=0, column=2)
 
         # --- Bottom Actions ---
         self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.bottom_frame.grid(row=8, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.bottom_frame.grid(row=10, column=0, padx=20, pady=(0, 20), sticky="ew")
         
         self.open_folder_btn = ctk.CTkButton(self.bottom_frame, text="Apri Cartella", 
                                             fg_color="#7f8c8d", hover_color="#95a5a6",
@@ -142,7 +163,29 @@ class SubtitleDownloaderGUI(ctk.CTk):
             self.dest_entry.delete(0, "end")
             self.dest_entry.insert(0, folder)
 
+    def browse_ffmpeg(self):
+        file_path = filedialog.askopenfilename(
+            title="Seleziona ffmpeg.exe", 
+            filetypes=[("Executable", "*.exe"), ("All files", "*.*")]
+        )
+        if file_path:
+            self.ffmpeg_entry.delete(0, "end")
+            self.ffmpeg_entry.insert(0, file_path)
+
+    def save_ffmpeg_path(self):
+        path = self.ffmpeg_entry.get().strip()
+        if not path:
+            messagebox.showwarning("Attenzione", "Inserisci un percorso valido per FFmpeg.")
+            return
+        
+        if self.logic.set_ffmpeg_path(path):
+            self.log(f"Configurazione FFmpeg salvata correttamente.")
+            messagebox.showinfo("Successo", "Percorso FFmpeg salvato con successo!")
+        else:
+            messagebox.showerror("Errore", "Il percorso selezionato non è valido o il file non esiste.")
+
     def open_dest_folder(self):
+
         path = self.dest_entry.get().strip() or "."
         abs_path = os.path.abspath(path)
         if os.path.exists(abs_path):
