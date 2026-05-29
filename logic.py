@@ -8,8 +8,6 @@ import zipfile
 from ffmpeg_manager import FFmpegManager
 
 # --- Custom Exceptions ---
-
-# --- Custom Exceptions ---
 class SubtitleError(Exception):
     """Base exception for subtitle downloader"""
     pass
@@ -32,13 +30,13 @@ class DependencyError(SubtitleError):
 
 # --- Utilities ---
 def get_program_dir():
-    """ Get the directory where the executable or script is located """
+    """Returns the directory where the current script or executable is located."""
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
     return os.path.abspath(".")
 
 def get_resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """Returns the absolute path to a resource, supporting both development and PyInstaller environments."""
     try:
         base_path = sys._MEIPASS
     except Exception:
@@ -58,8 +56,7 @@ class SubtitleLogic:
             print(msg)
 
     def ensure_dependencies(self):
-        """Checks for ffmpeg and nodejs."""
-        # Use the manager to check/install ffmpeg
+        """Verifies if FFmpeg and Node.js are installed, attempting to install them if they are missing."""
         ffmpeg_exists = os.path.exists(self.ffmpeg_mgr.ffmpeg_path or self.ffmpeg_mgr._get_default_path())
 
         if not ffmpeg_exists:
@@ -93,8 +90,7 @@ class SubtitleLogic:
         return ffmpeg_exists, node_path
 
     def get_available_subtitles(self, url):
-
-        """Fetches available subtitles for a given video."""
+        """Retrieves the list of available subtitles (manual and automatic) for a specified video URL."""
         ydl_opts = {'skip_download': True}
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -143,9 +139,19 @@ class SubtitleLogic:
 
     def download_subtitles(self, url, lang, dest, format='srt', auto_only=False, manual_only=False, progress_hook=None):
         """
-        Downloads subtitles. 
-        format: 'srt', 'vtt', 'txt' (Note: txt is limited)
-        auto_only/manual_only filters which ones to try first or exclusively.
+        Downloads subtitles for a given video URL in the specified language and format.
+
+        Args:
+            url (str): The URL of the video.
+            lang (str): The language code for the subtitles.
+            dest (str): Destination directory to save the file.
+            format (str): Subtitle format ('srt', 'vtt', or 'txt'). Defaults to 'srt'.
+            auto_only (bool): If True, only attempts to download automatic captions.
+            manual_only (bool): If True, only attempts to download manual subtitles.
+            progress_hook (callable): Optional callback function for tracking progress.
+
+        Returns:
+            str: The absolute path to the destination directory if successful.
         """
         try:
             ffmpeg_ok, node_path = self.ensure_dependencies()
@@ -162,10 +168,7 @@ class SubtitleLogic:
 
             ffmpeg_abs_path = os.path.dirname(self.ffmpeg_mgr.ffmpeg_path or self.ffmpeg_mgr._get_default_path())
             
-            # Construct subtitle language list based on filters
-            # We can't easily filter 'auto' vs 'manual' in ydl_opts directly for download, 
-            # but we can control it by what we request.
-            # yt-dlp downloads both if we set both flags. To strictly filter:
+            # Configure subtitle filters based on manual/automatic preferences
             
             ydl_opts = {
                 'writesubtitles': not auto_only,
@@ -188,9 +191,7 @@ class SubtitleLogic:
                 # Default is vtt, so no postprocessor needed usually
                 pass 
             elif format == 'txt':
-                # txt conversion is harder via yt-dlp directly, usually requires manual parsing.
-                # For now we'll keep it as srt then maybe a simple text strip if requested, 
-                # or just notify that srt/vtt are supported.
+                # TXT conversion is not directly supported by yt-dlp; we use SRT as a baseline.
                 ydl_opts['postprocessors'] = [{
                     'key': 'FFmpegSubtitlesConvertor',
                     'format': 'srt',

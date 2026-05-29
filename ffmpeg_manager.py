@@ -17,7 +17,7 @@ class FFmpegManager:
         self.ffmpeg_path = self.config.get("ffmpeg_path")
 
     def _load_config(self):
-        \"\"\"Loads the FFmpeg path from a local JSON configuration file.\"\"\"
+        """Loads the FFmpeg path from a local JSON configuration file."""
         if os.path.exists(self.config_file):
             try:
                 with open(self.config_file, 'r') as f:
@@ -27,7 +27,7 @@ class FFmpegManager:
         return {}
 
     def _save_config(self):
-        \"\"\"Persists the current FFmpeg configuration to the JSON file.\"\"\"
+        """Persists the current FFmpeg configuration to the JSON file."""
         try:
             with open(self.config_file, 'w') as f:
                 json.dump(self.config, f, indent=4)
@@ -35,7 +35,7 @@ class FFmpegManager:
             print(f"Errore salvataggio config FFmpeg: {e}")
 
     def set_ffmpeg_path(self, path):
-        \"\"\"Updates the FFmpeg executable path and saves it to config.\"\"\"
+        """Updates the FFmpeg executable path and saves it to config."""
         if not path or not os.path.exists(path):
             return False
         self.ffmpeg_path = path
@@ -44,10 +44,10 @@ class FFmpegManager:
         return True
 
     def get_local_version(self):
-        \"\"\" 
+        """ 
         Extracts the current FFmpeg version by executing 'ffmpeg -version'.
         Returns the version string (e.g., '7.1.0') or None if failed.
-        \"\"\"
+        """
         try:
             exe = self.ffmpeg_path or self._get_default_path()
             if not exe or not os.path.exists(exe):
@@ -62,10 +62,10 @@ class FFmpegManager:
         return None
 
     def get_remote_version(self):
-        \"\"\" 
+        """ 
         Fetches the latest FFmpeg release version from BtbN's GitHub API.
         This is used to notify the user if an update is available.
-        \"\"\"
+        """
         try:
             url = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest"
             with urllib.request.urlopen(url) as response:
@@ -82,7 +82,7 @@ class FFmpegManager:
         return None
 
     def check_for_update(self):
-        \"\"\"Compares local and remote versions to determine if an update is needed.\"\"\"
+        """Compares local and remote versions to determine if an update is needed."""
         local = self.get_local_version()
         remote = self.get_remote_version()
         if local and remote and local != remote:
@@ -90,10 +90,10 @@ class FFmpegManager:
         return {"update_available": False, "local": local, "remote": remote}
 
     def download_and_install(self, prog_dir=None):
-        \"\"\" 
+        """ 
         Downloads the latest FFmpeg build from GitHub, extracts only the necessary 
         binaries (ffmpeg.exe and DLLs), and configures the path automatically.
-        \"\"\"
+        """
         if prog_dir is None:
             prog_dir = os.path.abspath(".")
             
@@ -142,5 +142,5 @@ class FFmpegManager:
             return False
 
     def _get_default_path(self):
-        \"\"\"Returns the expected default path for FFmpeg relative to the application root.\"\"\"
+        """Returns the expected default path for FFmpeg relative to the application root."""
         return os.path.join(os.path.abspath("."), "ffmpeg", "bin", "ffmpeg.exe")
