@@ -99,8 +99,11 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.action_frame.grid_columnconfigure(0, weight=1)
 
         self.download_btn = ctk.CTkButton(self.action_frame, text="Scarica Sottotitoli", 
-                                              font=("Segoe UI", 14, "bold"), height=40, border_width=0, command=self.start_download_thread)
+                                                font=("Segoe UI", 14, "bold"), height=40, border_width=0, command=self.start_download_thread)
         self.download_btn.grid(row=0, column=0, padx=0, pady=5, sticky="ew")
+
+        self.is_downloading = False # Track download state for soft-disable
+        self.original_btn_color = self.download_btn.cget("fg_color")
 
         self.progress_bar = ctk.CTkProgressBar(self.action_frame)
         self.progress_bar.grid(row=1, column=0, padx=0, pady=5, sticky="ew")
@@ -148,7 +151,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
 
         
         self.open_folder_btn = ctk.CTkButton(self.bottom_frame, text="Apri Cartella", 
-                                            fg_color="#7f8c8d", hover_color="#95a5a6",
+                                            fg_color="#461ae7", hover_color="#0004FF",
                                             command=self.open_dest_folder, state="disabled")
         self.open_folder_btn.pack(side="right")
 
@@ -309,7 +312,11 @@ class SubtitleDownloaderGUI(ctk.CTk):
              messagebox.showwarning("Attenzione", "Seleziona almeno un tipo di sottotitolo (Manuale o Automatico).")
              return
 
-        self.download_btn.configure(state="disabled")
+        if self.is_downloading:
+            return
+
+        self.is_downloading = True
+        self.download_btn.configure(text="Download in corso...", fg_color="#5c5c5c")
         self.open_folder_btn.configure(state="disabled")
         self.progress_bar.set(0)
         
@@ -346,8 +353,12 @@ class SubtitleDownloaderGUI(ctk.CTk):
                 self.log(f"ERRORE CRITICO: {e}")
                 messagebox.showerror("Errore Critico", f"Si è verificato un errore imprevisto:\n{e}")
             finally:
-                self.download_btn.configure(state="normal")
-                self.focus() # Remove focus from button to avoid visual artifacts (black line)
+                def reset_ui():
+                    self.is_downloading = False
+                    self.download_btn.configure(text="Scarica Sottotitoli", fg_color=self.original_btn_color)
+                    self.focus()
+                
+                self.after(0, reset_ui)
 
         threading.Thread(target=task, daemon=True).start()
 
