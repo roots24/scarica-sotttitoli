@@ -52,4 +52,6 @@ The application is divided into three main layers:
 ## ⚙️ Configuration
 
 The app saves the FFmpeg path in `config.json` to avoid redundant searches on startup. You can manually update this path via the GUI's "Configurazione FFmpeg" section.
+
+
 ![alt text](image.png)

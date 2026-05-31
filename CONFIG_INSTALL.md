@@ -47,15 +47,15 @@ Un modulo specializzato per l'astrazione dell'estensione binaria necessaria alla
 Per distribuire l'applicazione come un singolo file eseguibile per Windows, si raccomanda l'utilizzo di **PyInstaller**.
 
 ### Comando di Compilazione
-Esegui il seguente comando nel terminale:
-```bash
-pyinstaller --noconsole --onefile --add-data "C:/Path/To/Python/Lib/site-packages/customtkinter;customtkinter/" gui.py
+Esegui il seguente comando nel terminale (PowerShell):
+```powershell
+$ctk_path = python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))"; pyinstaller --noconsole --onefile --add-data "$($ctk_path);customtkinter/" gui.py
 ```
 
 ### Dettagli Tecnici dei Flag:
 - `--noconsole`: Impedisce l'apertura della finestra del terminale (CMD) all'avvio dell'app, mostrando solo la GUI.
 - `--onefile`: Impacchetta tutto in un unico file `.exe` per facilitare la distribuzione.
-- `--add-data`: **Fondamentale**. `customtkinter` richiede i suoi file di temi e asset (JSON, immagini) per renderizzare l'interfaccia correttamente. Devi indicare il percorso reale della cartella `customtkinter` nel tuo ambiente Python.
+- `--add-data`: **Fondamentale**. `customtkinter` richiede i suoi file di temi e asset (JSON, immagini) per renderizzare l'interfaccia correttamente. Il comando PowerShell sopra indicato rileva automaticamente il percorso della libreria nel tuo ambiente Python.
 
 ### Gestione dei Binari FFmpeg
 L'eseguibile creato non include FFmpeg al suo interno per evitare dimensioni eccessive. L'applicazione gestirà automaticamente:
