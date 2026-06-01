@@ -4,7 +4,7 @@
 
 A professional tool for downloading and converting subtitles from YouTube videos and Shorts into high-quality formats like `.srt`, `.vtt`, or `.txt`.
 
-## 🚀 Features
+ ## 🚀 Features
 
 - **Language Detection**: Automatically fetches all available subtitles (manual and automatic) for any given video.
 - **Smart Conversion**: Integrates FFmpeg to seamlessly convert WebVTT (`.vtt`) files to SubRip (`.srt`).
