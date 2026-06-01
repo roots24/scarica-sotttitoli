@@ -22,13 +22,23 @@ class SubtitleDownloaderGUI(ctk.CTk):
         
         # Grid Configuration
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(9, weight=1) # Log area grows
+        self.grid_rowconfigure(2, weight=1) # Log area grows
 
-        # --- URL Section ---
-        self.url_label = ctk.CTkLabel(self, text="URL Video YouTube / Short:", font=("Segoe UI", 14, "bold"))
+        # --- Tabview Section ---
+        self.tabview = ctk.CTkTabview(self)
+        self.tabview.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="nsew")
+        
+        self.tab_download = self.tabview.add("Download")
+        self.tab_settings = self.tabview.add("Impostazioni")
+
+        # --- Download Tab Content ---
+        self.tab_download.grid_columnconfigure(0, weight=1)
+
+        # URL Section
+        self.url_label = ctk.CTkLabel(self.tab_download, text="URL Video YouTube / Short:", font=("Segoe UI", 14, "bold"))
         self.url_label.grid(row=0, column=0, padx=20, pady=(20, 5), sticky="w")
 
-        self.url_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.url_frame = ctk.CTkFrame(self.tab_download, fg_color="transparent")
         self.url_frame.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.url_frame.grid_columnconfigure(0, weight=1)
 
@@ -38,8 +48,8 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.paste_btn = ctk.CTkButton(self.url_frame, text="Incolla", width=80, command=self.paste_url)
         self.paste_btn.grid(row=0, column=1)
 
-        # --- Options Section ---
-        self.options_frame = ctk.CTkFrame(self)
+        # Options Section
+        self.options_frame = ctk.CTkFrame(self.tab_download)
         self.options_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
         self.options_frame.grid_columnconfigure((0, 1), weight=1)
 
@@ -74,15 +84,15 @@ class SubtitleDownloaderGUI(ctk.CTk):
 
         # Fetch Languages Button
         self.fetch_btn = ctk.CTkButton(self.options_frame, text="Carica Lingue Disponibili", 
-                                      fg_color="#2c3e50", hover_color="#34495e", 
-                                      command=self.load_languages)
+                                       fg_color="#2c3e50", hover_color="#34495e", 
+                                       command=self.load_languages)
         self.fetch_btn.grid(row=3, column=0, columnspan=2, padx=15, pady=(0, 15), sticky="ew")
 
-        # --- Destination Section ---
-        self.dest_label = ctk.CTkLabel(self, text="Cartella di destinazione:", font=("Segoe UI", 14, "bold"))
+        # Destination Section
+        self.dest_label = ctk.CTkLabel(self.tab_download, text="Cartella di destinazione:", font=("Segoe UI", 14, "bold"))
         self.dest_label.grid(row=3, column=0, padx=20, pady=(10, 5), sticky="w")
 
-        self.dest_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.dest_frame = ctk.CTkFrame(self.tab_download, fg_color="transparent")
         self.dest_frame.grid(row=4, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.dest_frame.grid_columnconfigure(0, weight=1)
 
@@ -93,13 +103,13 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.browse_btn = ctk.CTkButton(self.dest_frame, text="Sfoglia", width=80, command=self.browse_folder)
         self.browse_btn.grid(row=0, column=1)
 
-        # --- Actions Section ---
-        self.action_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.action_frame.grid(row=7, column=0, padx=20, pady=10, sticky="ew")
+        # Actions Section
+        self.action_frame = ctk.CTkFrame(self.tab_download, fg_color="transparent")
+        self.action_frame.grid(row=5, column=0, padx=20, pady=10, sticky="ew")
         self.action_frame.grid_columnconfigure(0, weight=1)
 
         self.download_btn = ctk.CTkButton(self.action_frame, text="Scarica Sottotitoli", 
-                                                font=("Segoe UI", 14, "bold"), height=40, border_width=0, command=self.start_download_thread)
+                                                 font=("Segoe UI", 14, "bold"), height=40, border_width=0, command=self.start_download_thread)
         self.download_btn.grid(row=0, column=0, padx=0, pady=5, sticky="ew")
 
         self.is_downloading = False # Track download state for soft-disable
@@ -109,19 +119,14 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.progress_bar.grid(row=1, column=0, padx=0, pady=5, sticky="ew")
         self.progress_bar.set(0)
 
-        # --- Log Section ---
-        self.log_label = ctk.CTkLabel(self, text="Log di sistema:", font=("Segoe UI", 12))
-        self.log_label.grid(row=8, column=0, padx=20, pady=(10, 0), sticky="w")
+        # --- Settings Tab Content ---
+        self.tab_settings.grid_columnconfigure(0, weight=1)
 
-        self.log_area = ctk.CTkTextbox(self, state='disabled', font=("Consolas", 12))
-        self.log_area.grid(row=9, column=0, padx=20, pady=(0, 10), sticky="nsew")
+        self.ffmpeg_label = ctk.CTkLabel(self.tab_settings, text="Configurazione FFmpeg:", font=("Segoe UI", 14, "bold"))
+        self.ffmpeg_label.grid(row=0, column=0, padx=20, pady=(20, 5), sticky="w")
 
-        # --- FFmpeg Configuration Section ---
-        self.ffmpeg_label = ctk.CTkLabel(self, text="Configurazione FFmpeg:", font=("Segoe UI", 14, "bold"))
-        self.ffmpeg_label.grid(row=5, column=0, padx=20, pady=(20, 5), sticky="w")
-
-        self.ffmpeg_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.ffmpeg_frame.grid(row=6, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.ffmpeg_frame = ctk.CTkFrame(self.tab_settings, fg_color="transparent")
+        self.ffmpeg_frame.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.ffmpeg_frame.grid_columnconfigure(0, weight=1)
 
         # Version display
@@ -145,9 +150,16 @@ class SubtitleDownloaderGUI(ctk.CTk):
         # Initial version check
         self.refresh_ffmpeg_version()
 
-        # --- Bottom Actions ---
+        # --- Log Section (Main Window) ---
+        self.log_label = ctk.CTkLabel(self, text="Log di sistema:", font=("Segoe UI", 12))
+        self.log_label.grid(row=1, column=0, padx=20, pady=(10, 0), sticky="w")
+
+        self.log_area = ctk.CTkTextbox(self, state='disabled', font=("Consolas", 12))
+        self.log_area.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="nsew")
+
+        # --- Bottom Actions (Main Window) ---
         self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.bottom_frame.grid(row=10, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.bottom_frame.grid(row=3, column=0, padx=20, pady=(0, 20), sticky="ew")
 
         
         self.open_folder_btn = ctk.CTkButton(self.bottom_frame, text="Apri Cartella", 
