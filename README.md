@@ -1,5 +1,7 @@
 # YouTube Subtitle Downloader Pro
-![alt text](image.png)
+
+![alt text](image-1.png)
+
 A professional tool for downloading and converting subtitles from YouTube videos and Shorts into high-quality formats like `.srt`, `.vtt`, or `.txt`.
 
 ## 🚀 Features
@@ -29,8 +31,6 @@ The application is divided into three main layers:
 ### Setup
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-repo/scarica-sottotitoli.git
-   cd scarica-sottitoli
    ```
 2. Install dependencies:
    ```bash
