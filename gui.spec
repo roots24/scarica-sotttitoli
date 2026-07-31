@@ -1,11 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+import customtkinter
+
+customtkinter_dir = os.path.dirname(customtkinter.__file__)
 
 a = Analysis(
     ['gui.py'],
     pathex=[],
     binaries=[],
-    datas=[('C:\\Program Files\\Python313\\Lib\\site-packages\\customtkinter', 'customtkinter/')],
+    datas=[(customtkinter_dir, 'customtkinter/')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -25,18 +25,15 @@ The application is divided into three main layers:
 ## 📦 Installation & Requirements
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.10+ (required by yt-dlp)
 - Windows OS (Currently optimized for Windows)
 
 ### Setup
-1. Clone the repository:
-   ```bash
-   ```
-2. Install dependencies:
+1. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-3. Run the application:
+2. Run the application from the **repository root** (relative paths to `config.json` and `ffmpeg/` are resolved from the current working directory):
    ```bash
    python gui.py
    ```
@@ -52,5 +49,41 @@ The application is divided into three main layers:
 ## ⚙️ Configuration
 
 The app saves the FFmpeg path in `config.json` to avoid redundant searches on startup. You can manually update this path via the GUI's "Configurazione FFmpeg" section.
+
+## 🧪 Testing & Linting
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests -q   # logic + ffmpeg_manager (headless, no network)
+python -m ruff check .       # lint (config in pyproject.toml)
+```
+
+CI (GitHub Actions) runs ruff + pytest on Windows (Python 3.11/3.13).
+
+## 📦 Building the executable
+
+`build/` and `dist/` are git-ignored, so the `.exe` is **not committed** — build it locally with PyInstaller:
+
+```bash
+# 1. Install dev dependencies (includes pyinstaller)
+pip install -r requirements-dev.txt
+
+# 2. Verify the code before building (recommended)
+python -m pytest tests -q
+python -m ruff check .
+
+# 3. Build the single-file executable
+pyinstaller gui.spec
+```
+
+The output is `dist/gui.exe` (single-file, no console window).
+
+Notes:
+- `gui.spec` locates the customtkinter data path **automatically** from the Python environment used for the build (no hardcoded paths) — any Python 3.10+ works.
+- FFmpeg is **not bundled**: on first run the app downloads it automatically (~100 MB) into `ffmpeg/bin/` next to the executable.
+
+## 🗺️ Roadmap
+
+Improvement plan: see [PLAN.md](PLAN.md).
 
 

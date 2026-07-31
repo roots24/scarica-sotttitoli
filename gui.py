@@ -1,14 +1,34 @@
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
-import threading
+import datetime
 import os
+import re
 import subprocess
-from logic import SubtitleLogic, SubtitleError, VideoNotFoundError, SubtitlesUnavailableError, NetworkError, DependencyError
-from ffmpeg_manager import FFmpegManager
+import threading
+from tkinter import filedialog, messagebox
 
-# Set appearance
+import customtkinter as ctk
+
+from ffmpeg_manager import FFmpegManager
+from logic import (
+    DependencyError,
+    NetworkError,
+    SubtitleError,
+    SubtitleLogic,
+    SubtitlesUnavailableError,
+    VideoNotFoundError,
+    get_program_dir,
+    is_ytdlp_breakage,
+)
+
+# Impostazione aspetto
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
+
+URL_PATTERN = re.compile(r'^https?://(www\.)?(youtube\.com|youtu\.be|m\.youtube\.com)')
+
+
+def is_valid_youtube_url(url: str) -> bool:
+    """Verifica che l'URL sia un link YouTube valido (http/https)."""
+    return bool(URL_PATTERN.match(url.strip()))
 
 class SubtitleDownloaderGUI(ctk.CTk):
     def __init__(self):
@@ -20,9 +40,9 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.logic = SubtitleLogic(logger=self)
         self.ffmpeg_mgr = FFmpegManager()
         
-        # Grid Configuration
+        # Configurazione griglia
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1) # Log area grows
+        self.grid_rowconfigure(2, weight=1) # L'area log si espande
 
         # --- Tabview Section ---
         self.tabview = ctk.CTkTabview(self)
@@ -34,7 +54,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
         # --- Download Tab Content ---
         self.tab_download.grid_columnconfigure(0, weight=1)
 
-        # URL Section
+        # Sezione URL
         self.url_label = ctk.CTkLabel(self.tab_download, text="URL Video YouTube / Short:", font=("Segoe UI", 14, "bold"))
         self.url_label.grid(row=0, column=0, padx=20, pady=(20, 5), sticky="w")
 
@@ -48,12 +68,12 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.paste_btn = ctk.CTkButton(self.url_frame, text="Incolla", width=80, command=self.paste_url)
         self.paste_btn.grid(row=0, column=1)
 
-        # Options Section
+        # Sezione Opzioni
         self.options_frame = ctk.CTkFrame(self.tab_download)
         self.options_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
         self.options_frame.grid_columnconfigure((0, 1), weight=1)
 
-        # Language Selection
+        # Selezione Lingua
         self.lang_label = ctk.CTkLabel(self.options_frame, text="Lingua Sottotitoli:", font=("Segoe UI", 12))
         self.lang_label.grid(row=0, column=0, padx=15, pady=(10, 0), sticky="w")
         
@@ -61,7 +81,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.lang_combo.grid(row=1, column=0, padx=15, pady=(0, 10), sticky="ew")
         self.lang_combo.set("Inserisci URL e clicca 'Carica'...")
 
-        # Format Selection
+        # Selezione Formato
         self.format_label = ctk.CTkLabel(self.options_frame, text="Formato File:", font=("Segoe UI", 12))
         self.format_label.grid(row=0, column=1, padx=15, pady=(10, 0), sticky="w")
         
@@ -69,7 +89,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.format_combo.grid(row=1, column=1, padx=15, pady=(0, 10), sticky="ew")
         self.format_combo.set("srt")
 
-        # Source Filter
+        # Filtro Sorgente
         self.filter_frame = ctk.CTkFrame(self.options_frame, fg_color="transparent")
         self.filter_frame.grid(row=2, column=0, columnspan=2, padx=15, pady=(0, 10), sticky="w")
 
@@ -88,7 +108,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
                                        command=self.load_languages)
         self.fetch_btn.grid(row=3, column=0, columnspan=2, padx=15, pady=(0, 15), sticky="ew")
 
-        # Destination Section
+        # Sezione Destinazione
         self.dest_label = ctk.CTkLabel(self.tab_download, text="Cartella di destinazione:", font=("Segoe UI", 14, "bold"))
         self.dest_label.grid(row=3, column=0, padx=20, pady=(10, 5), sticky="w")
 
@@ -103,7 +123,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.browse_btn = ctk.CTkButton(self.dest_frame, text="Sfoglia", width=80, command=self.browse_folder)
         self.browse_btn.grid(row=0, column=1)
 
-        # Actions Section
+        # Sezione Azioni
         self.action_frame = ctk.CTkFrame(self.tab_download, fg_color="transparent")
         self.action_frame.grid(row=5, column=0, padx=20, pady=10, sticky="ew")
         self.action_frame.grid_columnconfigure(0, weight=1)
@@ -112,7 +132,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
                                                  font=("Segoe UI", 14, "bold"), height=40, border_width=0, command=self.start_download_thread)
         self.download_btn.grid(row=0, column=0, padx=0, pady=5, sticky="ew")
 
-        self.is_downloading = False # Track download state for soft-disable
+        self.is_downloading = False # Stato download per soft-disable
         self.original_btn_color = self.download_btn.cget("fg_color")
 
         self.progress_bar = ctk.CTkProgressBar(self.action_frame)
@@ -129,7 +149,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.ffmpeg_frame.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.ffmpeg_frame.grid_columnconfigure(0, weight=1)
 
-        # Version display
+        # Visualizzazione versione
         self.ffmpeg_ver_label = ctk.CTkLabel(self.ffmpeg_frame, text="Versione: Caricamento...", font=("Segoe UI", 12, "italic"))
         self.ffmpeg_ver_label.grid(row=0, column=0, padx=(0, 10), sticky="w")
 
@@ -147,8 +167,11 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.ffmpeg_update_btn = ctk.CTkButton(self.ffmpeg_frame, text="Aggiorna FFmpeg", width=150, fg_color="#e67e22", hover_color="#d35400", command=self.update_ffmpeg)
         self.ffmpeg_update_btn.grid(row=2, column=0, columnspan=3, padx=(0, 10), pady=(10, 0), sticky="e")
 
-        # Initial version check
+        # Controllo versione iniziale
         self.refresh_ffmpeg_version()
+
+        # Check yt-dlp version in background
+        self.check_ytdlp_version()
 
         # --- Log Section (Main Window) ---
         self.log_label = ctk.CTkLabel(self, text="Log di sistema:", font=("Segoe UI", 12))
@@ -170,10 +193,32 @@ class SubtitleDownloaderGUI(ctk.CTk):
     # --- Logic Methods ---
 
     def log(self, message):
-        self.log_area.configure(state='normal')
-        self.log_area.insert("end", message + "\n")
-        self.log_area.see("end")
-        self.log_area.configure(state='disabled')
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+
+        def update():
+            self.log_area.configure(state='normal')
+            self.log_area.insert("end", f"[{timestamp}] {message}\n")
+            self.log_area.see("end")
+            self.log_area.configure(state='disabled')
+
+        self.after(0, update)
+
+    def ytdlp_update_hint(self):
+        self.log("Suggerimento: aggiorna yt-dlp eseguendo 'pip install -U yt-dlp' o scarica l'ultima versione del programma.")
+
+    def check_ytdlp_version(self):
+        def task():
+            result = self.logic.check_ytdlp_update()
+            if result is None:
+                self.log("Controllo versione yt-dlp non riuscito (rete non disponibile?).")
+            elif result[0] == "aggiornato":
+                self.log(f"yt-dlp aggiornato all'ultima versione ({result[1]}).")
+            else:
+                _, installed, latest = result
+                self.log(f"Attenzione: yt-dlp {installed} obsoleto. Ultima versione disponibile: {latest}")
+                self.ytdlp_update_hint()
+
+        threading.Thread(target=task, daemon=True).start()
 
     def paste_url(self):
         try:
@@ -214,7 +259,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
     def refresh_ffmpeg_version(self):
         def task():
             version = self.ffmpeg_mgr.get_local_version()
-            # Update UI from thread safely
+            # Aggiornamento UI sicuro dal thread
             self.after(0, lambda: self.ffmpeg_ver_label.configure(text=f"Versione: {version or 'Sconosciuta'}"))
         
         threading.Thread(target=task, daemon=True).start()
@@ -223,12 +268,15 @@ class SubtitleDownloaderGUI(ctk.CTk):
         def task():
             self.log("Controllo aggiornamenti FFmpeg in corso...")
             update_info = self.ffmpeg_mgr.check_for_update()
-            
+
             if update_info["update_available"]:
-                msg = f"Nuova versione disponibile: {update_info['remote']} (Installata: {update_info['local']})\nVuoi aggiornare?"
+                if update_info["local"]:
+                    msg = f"Nuova versione disponibile: {update_info['remote']} (Installata: {update_info['local']})\nVuoi aggiornare?"
+                else:
+                    msg = f"FFmpeg non installato. Ultima versione disponibile: {update_info['remote']}\nVuoi installarlo?"
                 if messagebox.askyesno("Aggiornamento Disponibile", msg):
                     self.log("Download e installazione di FFmpeg in corso...")
-                    success = self.ffmpeg_mgr.download_and_install(os.path.abspath("."))
+                    success = self.ffmpeg_mgr.download_and_install(get_program_dir())
                     if success:
                         self.log("FFmpeg aggiornato con successo!")
                         messagebox.showinfo("Successo", "FFmpeg è stato aggiornato all'ultima versione.")
@@ -239,8 +287,11 @@ class SubtitleDownloaderGUI(ctk.CTk):
                 else:
                     self.log("Aggiornamento annullato dall'utente.")
             else:
-                self.log(f"FFmpeg è già aggiornato (Versione: {update_info['local']}).")
-                messagebox.showinfo("Info", "FFmpeg è già alla versione più recente.")
+                if update_info["local"]:
+                    self.log(f"FFmpeg è già aggiornato (Versione: {update_info['local']}).")
+                    messagebox.showinfo("Info", "FFmpeg è già alla versione più recente.")
+                else:
+                    self.log("Impossibile verificare lo stato di FFmpeg (non installato o rete non disponibile).")
 
         threading.Thread(target=task, daemon=True).start()
 
@@ -249,7 +300,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
         path = self.dest_entry.get().strip() or "."
         abs_path = os.path.abspath(path)
         if os.path.exists(abs_path):
-            subprocess.run(['explorer', abs_path], shell=True)
+            subprocess.Popen(["explorer", abs_path])
         else:
             self.log("Errore: La cartella non esiste.")
 
@@ -258,32 +309,41 @@ class SubtitleDownloaderGUI(ctk.CTk):
         if not url:
             messagebox.showwarning("Attenzione", "Per favore, inserisci prima l'URL del video.")
             return
+        if not is_valid_youtube_url(url):
+            messagebox.showwarning("Attenzione", "URL non valido: deve essere un link YouTube (http/https).")
+            return
 
         self.fetch_btn.configure(state="disabled", text="Caricamento...")
-        
+        self.download_btn.configure(state="disabled")
+
         def task():
             try:
                 subs = self.logic.get_available_subtitles(url)
                 if not subs:
+                    self.after(0, lambda: (self.lang_combo.configure(values=["Nessuno disponibile"]),
+                                            self.lang_combo.set("Nessuno disponibile")))
                     self.log("Nessun sottotitolo disponibile per questo video.")
-                    self.lang_combo.configure(values=["Nessuno disponibile"])
-                    self.lang_combo.set("Nessuno disponibile")
                 else:
-                    # Create a list of display names (e.g., "Italiano (manual)")
+                    # Crea la lista dei nomi visualizzati (es. Italiano (man.))
                     display_list = [f"{s['name']} ({'man.' if s['type']=='manual' else 'auto'})" for s in subs]
-                    self.lang_combo.configure(values=display_list)
-                    self.lang_combo.set(display_list[0])
-                    # Store the actual codes for mapping
+                    # Memorizza i codici lingua per la mappatura
                     self.current_subs_map = {f"{s['name']} ({'man.' if s['type']=='manual' else 'auto'})": s['lang'] for s in subs}
+                    self.after(0, lambda: (self.lang_combo.configure(values=display_list),
+                                            self.lang_combo.set(display_list[0])))
                     self.log(f"Trovate {len(subs)} lingue disponibili.")
             except SubtitleError as e:
                 self.log(f"Errore caricamento lingue: {e}")
+                if is_ytdlp_breakage(str(e)):
+                    self.ytdlp_update_hint()
                 messagebox.showerror("Errore", str(e))
             except Exception as e:
                 self.log(f"Errore imprevisto: {e}")
+                if is_ytdlp_breakage(str(e)):
+                    self.ytdlp_update_hint()
                 messagebox.showerror("Errore Critico", f"Si è verificato un errore imprevisto: {e}")
             finally:
-                self.fetch_btn.configure(state="normal", text="Carica Lingue Disponibili")
+                self.after(0, lambda: (self.fetch_btn.configure(state="normal", text="Carica Lingue Disponibili"),
+                                        self.download_btn.configure(state="normal")))
 
         threading.Thread(target=task, daemon=True).start()
 
@@ -291,23 +351,30 @@ class SubtitleDownloaderGUI(ctk.CTk):
         if d['status'] == 'downloading':
             p = d.get('_percent_str', '0%').replace('%', '')
             try:
-                float_p = float(p) / 100.0
-                self.progress_bar.set(float_p)
+                value = float(p) / 100.0
             except ValueError:
-                pass
+                return
+            self.after(0, lambda v=value: self.progress_bar.set(v))
         elif d['status'] == 'finished':
-            self.progress_bar.set(1.0)
+            self.after(0, lambda: self.progress_bar.set(1.0))
 
     def start_download_thread(self):
         url = self.url_entry.get().strip()
         dest = self.dest_entry.get().strip() or "."
         fmt = self.format_combo.get()
+
+        if not url:
+            messagebox.showwarning("Attenzione", "Per favore, inserisci prima l'URL del video.")
+            return
+        if not is_valid_youtube_url(url):
+            messagebox.showwarning("Attenzione", "URL non valido: deve essere un link YouTube (http/https).")
+            return
         
-        # Resolve selected language code
+        # Risolve il codice della lingua selezionata
         selected_lang_text = self.lang_combo.get()
         if not hasattr(self, 'current_subs_map') or selected_lang_text not in self.current_subs_map:
-            # Fallback to manual input if map is missing or selection is invalid
-            # We allow users to manually type into the combo box (which CTK allows)
+            # Fallback all'input manuale se la mappa manca o la selezione non è valida
+            # L'utente può digitare manualmente nella combo (consentito da CTK)
             lang = selected_lang_text
         else:
             lang = self.current_subs_map[selected_lang_text]
@@ -316,7 +383,7 @@ class SubtitleDownloaderGUI(ctk.CTk):
             messagebox.showwarning("Attenzione", "Assicurati di aver inserito l'URL e selezionato una lingua.")
             return
 
-        # Filters
+        # Filtri
         manual_only = not self.auto_var.get()
         auto_only = not self.manual_var.get()
         
@@ -331,6 +398,9 @@ class SubtitleDownloaderGUI(ctk.CTk):
         self.download_btn.configure(text="Download in corso...", fg_color="#5c5c5c")
         self.open_folder_btn.configure(state="disabled")
         self.progress_bar.set(0)
+
+        # Sincronizza il percorso FFmpeg correntemente configurato (può essere cambiato dalle impostazioni)
+        self.logic.ffmpeg_mgr.ffmpeg_path = self.ffmpeg_mgr.ffmpeg_path
         
         def task():
             try:
@@ -354,15 +424,21 @@ class SubtitleDownloaderGUI(ctk.CTk):
                 messagebox.showerror("Sottotitoli non disponibili", str(e))
             except NetworkError as e:
                 self.log(f"ERRORE DI RETE: {e}")
+                if is_ytdlp_breakage(str(e)):
+                    self.ytdlp_update_hint()
                 messagebox.showerror("Errore di Rete", str(e))
             except DependencyError as e:
                 self.log(f"ERRORE DIPENDENZE: {e}")
                 messagebox.showerror("Errore Dipendenze", str(e))
             except SubtitleError as e:
                 self.log(f"ERRORE: {e}")
+                if is_ytdlp_breakage(str(e)):
+                    self.ytdlp_update_hint()
                 messagebox.showerror("Errore", str(e))
             except Exception as e:
                 self.log(f"ERRORE CRITICO: {e}")
+                if is_ytdlp_breakage(str(e)):
+                    self.ytdlp_update_hint()
                 messagebox.showerror("Errore Critico", f"Si è verificato un errore imprevisto:\n{e}")
             finally:
                 def reset_ui():

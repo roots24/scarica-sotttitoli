@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Stato runtime (path FFmpeg specifico della macchina)
+config.json
+
+# Artifact PyInstaller
+build/
+dist/
+
+# Binari FFmpeg scaricati automaticamente (~100MB)
+ffmpeg/
