@@ -261,20 +261,42 @@ class SubtitleLogic:
 
         return ydl_opts
 
+    def _snapshot_dir(self, dest: str) -> dict:
+        """Snapshot dei file (nome -> (mtime_ns, size)) presenti prima dell'esecuzione."""
+        snap = {}
+        if not os.path.isdir(dest):
+            return snap
+        for name in os.listdir(dest):
+            try:
+                st = os.stat(os.path.join(dest, name))
+                snap[name] = (st.st_mtime_ns, st.st_size)
+            except OSError:
+                continue
+        return snap
+
+    def _file_changed(self, dest: str, name: str, snapshot: dict) -> bool:
+        """True se il file non esisteva prima o è stato riscritto durante questa esecuzione."""
+        try:
+            st = os.stat(os.path.join(dest, name))
+        except OSError:
+            return True
+        return snapshot.get(name) != (st.st_mtime_ns, st.st_size)
+
     def _find_matching_file(self, dest: str, slug: str, ext: str, lang: Optional[str] = None,
-                            ignore: Optional[set] = None) -> Optional[str]:
+                            snapshot: Optional[dict] = None) -> Optional[str]:
         """Cerca nella cartella di destinazione il file di sottotitoli corrispondente allo slug del titolo.
 
         Con lang specificato il match è esatto sul nome atteso (es. '<slug>.<lang>.srt'):
         evita falsi positivi con file stantii, file di altre lingue o titoli simili.
-        ignore esclude i file già presenti prima dell'ultimo download (snapshot pre-run).
+        snapshot esclude i file già presenti prima del download (snapshot pre-run) e NON
+        riscritti in questa esecuzione: un file stantio sovrascritto ora conta come nuovo.
         """
         if not os.path.isdir(dest):
             return None
-        ignore = ignore or set()
+        snapshot = snapshot or {}
         expected = f"{slug}.{lang}{ext}" if lang else None
         for f in os.listdir(dest):
-            if f in ignore:
+            if not self._file_changed(dest, f, snapshot):
                 continue
             if expected:
                 if f == expected:
@@ -369,9 +391,10 @@ class SubtitleLogic:
                 passes.append({"manual": False, "auto": True,
                                "suffix": ".auto" if want_manual else "", "label": "automatici"})
 
-            # Snapshot dei file già presenti: solo i file creati da QUESTA esecuzione contano,
-            # così un file stantio nella cartella di destinazione non genera falsi successi.
-            preexisting = set(os.listdir(dest))
+            # Snapshot dei file già presenti: contano solo i file creati O riscritti
+            # da QUESTA esecuzione, così un file stantio nella cartella di destinazione
+            # non genera falsi successi (e un file riscaricato non viene perso).
+            preexisting = self._snapshot_dir(dest)
             total_trovati = 0
             is_playlist = False
 
@@ -398,21 +421,21 @@ class SubtitleLogic:
 
                         if format == 'srt':
                             vtt_file = self._find_matching_file(dest, video_title_slug, ".vtt",
-                                                                lang=lang, ignore=preexisting)
+                                                                lang=lang, snapshot=preexisting)
                             if vtt_file:
                                 self.log(f"Conversione manuale di {os.path.basename(vtt_file)} -> .srt...")
                                 self.convert_vtt_to_srt(vtt_file)
 
                         if format == 'txt':
                             srt_file = self._find_matching_file(dest, video_title_slug, ".srt",
-                                                                lang=lang, ignore=preexisting)
+                                                                lang=lang, snapshot=preexisting)
                             if srt_file:
                                 self.log(f"Conversione di {os.path.basename(srt_file)} -> .txt...")
                                 self.convert_srt_to_txt(srt_file)
 
                         ext = ".txt" if format == 'txt' else (".srt" if format == 'srt' else ".vtt")
                         if self._find_matching_file(dest, video_title_slug, ext,
-                                                    lang=lang, ignore=preexisting):
+                                                    lang=lang, snapshot=preexisting):
                             total_trovati += 1
                         elif is_playlist:
                             self.log(f"Sottotitoli non trovati per: {entry.get('title') or entry.get('id') or url}")

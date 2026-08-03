@@ -249,6 +249,34 @@ def test_download_subtitles_ignora_file_stantii_in_destinazione(monkeypatch, tmp
         )
 
 
+def test_download_subtitles_riscaricamento_stesso_video_conta_successo(monkeypatch, tmp_path):
+    # Un .srt dello stesso video già presente (download precedente) che viene
+    # riscaricato e sovrascritto in QUESTA esecuzione deve contare come successo:
+    # il confronto è su mtime/size, non solo sul nome.
+    vtt_file = os.path.join(str(tmp_path), "Video Test.en.vtt")
+    stale_srt = os.path.join(str(tmp_path), "Video Test.en.srt")
+    with open(stale_srt, 'w', encoding='utf-8') as f:
+        f.write("srt stantio della passata precedente")
+
+    def fake_convert(self, vtt_path):
+        srt_path = os.path.splitext(vtt_path)[0] + ".srt"
+        with open(srt_path, 'w', encoding='utf-8') as f:
+            f.write("1\n00:00:00,000 --> 00:00:05,000\nTesto\n")
+        os.remove(vtt_path)
+        return True
+
+    monkeypatch.setattr(logic.SubtitleLogic, "convert_vtt_to_srt", fake_convert)
+    ydl = FakeYDL(str(tmp_path))
+    ydl.saved_files = [vtt_file]
+    logic_instance = make_logic(tmp_path, monkeypatch, ydl)
+
+    result = logic_instance.download_subtitles(
+        "https://youtu.be/abc", lang="en", dest=str(tmp_path), format="srt"
+    )
+
+    assert result == str(tmp_path)
+
+
 def test_download_subtitles_fallback_vtt_verso_srt(monkeypatch, tmp_path):
     vtt_file = os.path.join(str(tmp_path), "Video Test.en.vtt")
 
