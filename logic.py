@@ -1,15 +1,17 @@
-import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import time
 import urllib.error
-import urllib.request
 from typing import Callable, Optional
 
+import requests
 import yt_dlp
 
-from ffmpeg_manager import FFmpegManager
+from config import AppConfig
+from ffmpeg_manager import FFmpegManager, version_tuple
 
 
 # --- Eccezioni personalizzate ---
@@ -46,7 +48,7 @@ def get_program_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
-YTDLP_UPDATE_MARKERS = ("JSON", "extract_info", "Unable to extract", "Unsupported", "has no attribute")
+YTDLP_UPDATE_MARKERS = ("JSON", "extract_info", "Unable to extract", "Unsupported URL", "has no attribute")
 
 
 def is_ytdlp_breakage(message: str) -> bool:
@@ -56,9 +58,11 @@ def is_ytdlp_breakage(message: str) -> bool:
 
 # --- Logica principale ---
 class SubtitleLogic:
-    def __init__(self, logger=None):
+    def __init__(self, logger=None, ffmpeg_mgr: Optional[FFmpegManager] = None,
+                 app_config: Optional[AppConfig] = None):
         self.logger = logger
-        self.ffmpeg_mgr = FFmpegManager()
+        self.ffmpeg_mgr = ffmpeg_mgr or FFmpegManager()
+        self.app_config = app_config or AppConfig()
 
     def log(self, msg: str) -> None:
         if self.logger and hasattr(self.logger, 'log'):
@@ -76,12 +80,15 @@ class SubtitleLogic:
         """
         try:
             installed = yt_dlp.version.__version__
-            with urllib.request.urlopen("https://pypi.org/pypi/yt-dlp/json", timeout=15) as response:
-                data = json.loads(response.read().decode())
+            response = requests.get("https://pypi.org/pypi/yt-dlp/json", timeout=15)
+            response.raise_for_status()
+            data = response.json()
             latest = data.get("info", {}).get("version", installed)
-            if latest != installed:
-                return ("obsoleto", installed, latest)
-            return ("aggiornato", installed)
+            # Confronto numerico: le versioni nightly/dev (es. "2026.07.04.232701.dev.0")
+            # non devono essere segnalate come obsolete rispetto all'ultima stabile.
+            if version_tuple(installed) >= version_tuple(latest):
+                return ("aggiornato", installed)
+            return ("obsoleto", installed, latest)
         except Exception:
             return None
 
@@ -95,12 +102,10 @@ class SubtitleLogic:
                 raise DependencyError("Impossibile scaricare FFmpeg. È necessario per la conversione in .srt")
             ffmpeg_exists = True
 
-        node_path = None
-        try:
-            result = subprocess.run(["where", "node"], capture_output=True, encoding='utf-8', errors='replace', check=True)
-            node_path = result.stdout.strip().split('\n')[0]
+        node_path = shutil.which("node")
+        if node_path:
             self.log(f"JS Runtime trovato: {node_path}")
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        else:
             self.log("JS Runtime (Node.js) non trovato. Tentativo di installazione...")
             try:
                 subprocess.run(["choco", "install", "nodejs", "-y"], check=True, capture_output=True)
@@ -119,16 +124,22 @@ class SubtitleLogic:
 
         return ffmpeg_exists, node_path
 
-    def _with_retry(self, func: Callable, attempts: int = 2, delay: float = 2.0):
-        """Esegue func con retry in caso di NetworkError, con backoff fisso."""
+    def _with_retry(self, func: Callable, attempts: Optional[int] = None, delay: Optional[float] = None):
+        """Esegue func con retry in caso di NetworkError, con backoff fisso configurabile.
+
+        Se attempts/delay non sono specificati, usa i valori di AppConfig (persistiti in config.json).
+        """
+        attempts = attempts if attempts is not None else self.app_config.retry_attempts
+        delay = delay if delay is not None else self.app_config.retry_delay
+        total = max(1, attempts)
         last_error = None
-        for attempt in range(attempts):
+        for attempt in range(total):
             try:
                 return func()
             except NetworkError as e:
                 last_error = e
-                if attempt < attempts - 1:
-                    self.log(f"Errore di rete, nuovo tentativo ({attempt + 1}/{attempts})...")
+                if attempt < total - 1:
+                    self.log(f"Errore di rete, nuovo tentativo ({attempt + 1}/{total})...")
                     time.sleep(delay)
         raise last_error
 
@@ -188,10 +199,45 @@ class SubtitleLogic:
             self.log(f"Errore critico durante la conversione: {e}")
             return False
 
+    def convert_srt_to_txt(self, srt_path: str) -> bool:
+        """Converte un file .srt in .txt (solo testo, senza indici né timestamp), rimuovendo il file sorgente."""
+        txt_path = os.path.splitext(srt_path)[0] + ".txt"
+        try:
+            with open(srt_path, 'r', encoding='utf-8', errors='replace') as f:
+                lines = f.readlines()
+
+            out_lines = []
+            for line in lines:
+                stripped = line.strip()
+                if not stripped or stripped.upper().startswith("WEBVTT"):
+                    continue
+                if re.fullmatch(r'\d+', stripped):
+                    continue
+                if re.match(r'^\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}', stripped):
+                    continue
+                out_lines.append(stripped)
+
+            if not out_lines:
+                self.log(f"Nessun testo estraibile da {os.path.basename(srt_path)}")
+                return False
+
+            with open(txt_path, 'w', encoding='utf-8', newline='') as f:
+                f.write("\n".join(out_lines) + "\n")
+            os.remove(srt_path)
+            return True
+        except Exception as e:
+            self.log(f"Errore critico durante la conversione srt->txt: {e}")
+            return False
+
     def _build_ydl_opts(self, url: str, lang: str, dest: str, format: str,
                         auto_only: bool, manual_only: bool,
-                        progress_hook: Optional[Callable]) -> dict:
-        """Costruisce le opzioni per yt-dlp in base alla lingua, al formato e ai filtri scelti."""
+                        progress_hook: Optional[Callable],
+                        outtmpl_suffix: str = "") -> dict:
+        """Costruisce le opzioni per yt-dlp in base alla lingua, al formato e ai filtri scelti.
+
+        outtmpl_suffix (es. ".auto") viene inserito nel nome dei file per evitare
+        collisioni tra passate diverse (manuali vs automatici).
+        """
         if self.ffmpeg_mgr.ffmpeg_path:
             ffmpeg_abs_path = os.path.dirname(self.ffmpeg_mgr.ffmpeg_path)
         else:
@@ -202,7 +248,7 @@ class SubtitleLogic:
             'writeautomaticsub': not manual_only,
             'subtitleslangs': [lang],
             'skip_download': True,
-            'outtmpl': os.path.join(dest, '%(title)s.%(ext)s'),
+            'outtmpl': os.path.join(dest, f'%(title)s{outtmpl_suffix}.%(ext)s'),
             'ffmpeg_location': ffmpeg_abs_path,
             'logger': self._create_logger(),
             'progress_hooks': [progress_hook] if progress_hook else [],
@@ -215,29 +261,82 @@ class SubtitleLogic:
 
         return ydl_opts
 
-    def _find_matching_file(self, dest: str, slug: str, ext: str) -> Optional[str]:
-        """Cerca nella cartella di destinazione un file che corrisponda allo slug del titolo."""
+    def _find_matching_file(self, dest: str, slug: str, ext: str, lang: Optional[str] = None,
+                            ignore: Optional[set] = None) -> Optional[str]:
+        """Cerca nella cartella di destinazione il file di sottotitoli corrispondente allo slug del titolo.
+
+        Con lang specificato il match è esatto sul nome atteso (es. '<slug>.<lang>.srt'):
+        evita falsi positivi con file stantii, file di altre lingue o titoli simili.
+        ignore esclude i file già presenti prima dell'ultimo download (snapshot pre-run).
+        """
         if not os.path.isdir(dest):
             return None
+        ignore = ignore or set()
+        expected = f"{slug}.{lang}{ext}" if lang else None
         for f in os.listdir(dest):
-            if f.endswith(ext) and slug in f:
+            if f in ignore:
+                continue
+            if expected:
+                if f == expected:
+                    return os.path.join(dest, f)
+            elif f.endswith(ext) and slug in f:
                 return os.path.join(dest, f)
         return None
+
+    def _iter_entries(self, info: Optional[dict]) -> list:
+        """Estrae le voci da processare: la singola info video o gli entries di una playlist."""
+        if not info:
+            return []
+        if info.get('_type') == 'playlist' and info.get('entries'):
+            return [e for e in info['entries'] if e]
+        return [info]
+
+    def download_queue(self, urls: list, lang: str, dest: str, format: str = 'srt',
+                       auto_only: bool = False, manual_only: bool = False,
+                       progress_hook: Optional[Callable] = None) -> dict:
+        """Scarica i sottotitoli per una lista di URL (video o playlist) in sequenza.
+
+        Continua dopo un errore su un singolo URL, loggando il problema.
+
+        Returns:
+            dict: Conteggio finale, es. {"successi": n, "errori": m}.
+        """
+        successi = 0
+        errori = 0
+        for url in urls:
+            try:
+                self.download_subtitles(
+                    url, lang=lang, dest=dest, format=format,
+                    auto_only=auto_only, manual_only=manual_only,
+                    progress_hook=progress_hook,
+                )
+                successi += 1
+            except SubtitleError as e:
+                errori += 1
+                self.log(f"Errore per {url}: {e}")
+        return {"successi": successi, "errori": errori}
 
     def download_subtitles(self, url: str, lang: str, dest: str, format: str = 'srt',
                            auto_only: bool = False, manual_only: bool = False,
                            progress_hook: Optional[Callable] = None) -> str:
         """
-        Scarica i sottotitoli di un video YouTube nella lingua e nel formato richiesti.
+        Scarica i sottotitoli di un video o di una playlist YouTube nella lingua e nel formato richiesti.
 
         Args:
-            url: L'URL del video.
+            url: L'URL del video o della playlist.
             lang: Il codice lingua dei sottotitoli.
             dest: La cartella di destinazione dei file.
             format: Formato dei sottotitoli ('srt', 'vtt' o 'txt'). Default 'srt'.
             auto_only: Se True, tenta di scaricare solo le didascalie automatiche.
             manual_only: Se True, tenta di scaricare solo i sottotitoli manuali.
             progress_hook: Callback opzionale per il monitoraggio dell'avanzamento.
+
+        Note:
+            - Con entrambi i filtri attivi vengono eseguite due passate di yt-dlp: la passata
+              automatica usa il suffisso '.auto' nel nome (es. 'Titolo.auto.en.vtt') per non
+              sovrascrivere i sottotitoli manuali della stessa lingua.
+            - Il formato 'txt' produce un vero file .txt: yt-dlp non supporta il txt, quindi
+              il file viene prima convertito in .srt e poi ripulito da indici e timestamp.
 
         Returns:
             str: Il percorso assoluto della cartella di destinazione in caso di successo.
@@ -255,29 +354,71 @@ class SubtitleLogic:
             if not os.path.exists(dest):
                 os.makedirs(dest)
 
-            ydl_opts = self._build_ydl_opts(url, lang, dest, format, auto_only, manual_only, progress_hook)
+            want_manual = not auto_only
+            want_auto = not manual_only
+            if not (want_manual or want_auto):
+                raise SubtitlesUnavailableError("Nessun tipo di sottotitolo selezionato.")
 
-            if node_path:
-                ydl_opts['js_runtimes'] = {'Node': {'executable': node_path}}
+            # Con entrambi i tipi selezionati servono due passate: yt-dlp con entrambi i flag
+            # scarica solo i manuali per le lingue che li hanno. La passata automatica usa il
+            # suffisso '.auto' nel nome per evitare collisioni con i file manuali.
+            passes = []
+            if want_manual:
+                passes.append({"manual": True, "auto": False, "suffix": "", "label": "manuali"})
+            if want_auto:
+                passes.append({"manual": False, "auto": True,
+                               "suffix": ".auto" if want_manual else "", "label": "automatici"})
 
-            self.log(f"Avvio download sottotitoli ({lang}) per: {url}")
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                filename = ydl.prepare_filename(info)
+            # Snapshot dei file già presenti: solo i file creati da QUESTA esecuzione contano,
+            # così un file stantio nella cartella di destinazione non genera falsi successi.
+            preexisting = set(os.listdir(dest))
+            total_trovati = 0
+            is_playlist = False
 
-                video_title_slug = os.path.splitext(os.path.basename(filename))[0]
+            for run in passes:
+                ydl_opts = self._build_ydl_opts(url, lang, dest, format,
+                                                not run["manual"], not run["auto"],
+                                                progress_hook, run["suffix"])
+                if node_path:
+                    ydl_opts['js_runtimes'] = {'node': {'path': node_path}}
 
-                if format == 'srt':
-                    vtt_file = self._find_matching_file(dest, video_title_slug, ".vtt")
-                    if vtt_file:
-                        self.log(f"Conversione manuale di {os.path.basename(vtt_file)} -> .srt...")
-                        self.convert_vtt_to_srt(vtt_file)
+                self.log(f"Avvio download sottotitoli {run['label']} ({lang}) per: {url}")
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    entries = self._iter_entries(info)
 
-                ext = ".srt" if format in ('srt', 'txt') else ".vtt"
-                found = self._find_matching_file(dest, video_title_slug, ext) is not None
+                    if not entries:
+                        raise SubtitlesUnavailableError(f"Nessun video processato per: {url}")
 
-                if not found:
-                    raise SubtitlesUnavailableError(f"Sottotitoli non trovati per la lingua {lang}")
+                    is_playlist = is_playlist or info.get('_type') == 'playlist'
+
+                    for entry in entries:
+                        filename = ydl.prepare_filename(entry)
+                        video_title_slug = os.path.splitext(os.path.basename(filename))[0]
+
+                        if format == 'srt':
+                            vtt_file = self._find_matching_file(dest, video_title_slug, ".vtt",
+                                                                lang=lang, ignore=preexisting)
+                            if vtt_file:
+                                self.log(f"Conversione manuale di {os.path.basename(vtt_file)} -> .srt...")
+                                self.convert_vtt_to_srt(vtt_file)
+
+                        if format == 'txt':
+                            srt_file = self._find_matching_file(dest, video_title_slug, ".srt",
+                                                                lang=lang, ignore=preexisting)
+                            if srt_file:
+                                self.log(f"Conversione di {os.path.basename(srt_file)} -> .txt...")
+                                self.convert_srt_to_txt(srt_file)
+
+                        ext = ".txt" if format == 'txt' else (".srt" if format == 'srt' else ".vtt")
+                        if self._find_matching_file(dest, video_title_slug, ext,
+                                                    lang=lang, ignore=preexisting):
+                            total_trovati += 1
+                        elif is_playlist:
+                            self.log(f"Sottotitoli non trovati per: {entry.get('title') or entry.get('id') or url}")
+
+            if total_trovati == 0:
+                raise SubtitlesUnavailableError(f"Sottotitoli non trovati per la lingua {lang}")
 
             self.log("Operazione completata con successo.")
             return os.path.abspath(dest)

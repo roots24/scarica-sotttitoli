@@ -4,9 +4,11 @@ import re
 import shutil
 import subprocess
 import sys
-import urllib.request
+import threading
 import zipfile
 from typing import Optional
+
+import requests
 
 CONFIG_FILE_NAME = "config.json"
 FFMPEG_ZIP_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip"
@@ -22,6 +24,19 @@ def get_app_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def version_tuple(version: Optional[str]) -> tuple:
+    """Converte una stringa di versione (es. '8.1', '8.1.0') in una tupla numerica confrontabile.
+
+    Le componenti mancanti vengono riempite con zeri fino a 3 posizioni, quindi '8.1' e '8.1.0'
+    risultano uguali anche con ==. Le versioni con più di 3 componenti (es. nightly yt-dlp tipo
+    '2026.07.04.232701.dev.0') non vengono troncate e restano più grandi delle stabili.
+    """
+    parts = [int(x) for x in re.findall(r'\d+', version or '') or ['0']]
+    if len(parts) < 3:
+        parts += [0] * (3 - len(parts))
+    return tuple(parts)
+
+
 class FFmpegManager:
     """Gestisce installazione, configurazione e versioni dei binari FFmpeg."""
 
@@ -29,6 +44,7 @@ class FFmpegManager:
         self.config_file = config_file or os.path.join(get_app_dir(), CONFIG_FILE_NAME)
         self.config = self._load_config()
         self.ffmpeg_path: Optional[str] = self.config.get("ffmpeg_path")
+        self._lock = threading.Lock()
 
     def _load_config(self) -> dict:
         """Carica il percorso FFmpeg dal file di configurazione JSON locale."""
@@ -50,12 +66,13 @@ class FFmpegManager:
 
     def set_ffmpeg_path(self, path: str) -> bool:
         """Aggiorna il percorso dell'eseguibile FFmpeg e lo salva nella configurazione."""
-        if not path or not os.path.exists(path):
-            return False
-        self.ffmpeg_path = path
-        self.config["ffmpeg_path"] = path
-        self._save_config()
-        return True
+        with self._lock:
+            if not path or not os.path.exists(path):
+                return False
+            self.ffmpeg_path = path
+            self.config["ffmpeg_path"] = path
+            self._save_config()
+            return True
 
     def get_local_version(self) -> Optional[str]:
         """
@@ -68,7 +85,7 @@ class FFmpegManager:
                 return None
 
             result = subprocess.run([exe, "-version"], capture_output=True, encoding='utf-8', errors='replace')
-            match = re.search(r'ffmpeg version (\d+\.\d+\.\d+)', result.stdout)
+            match = re.search(r'ffmpeg version (\d+\.\d+(?:\.\d+)?)', result.stdout)
             if match:
                 return match.group(1)
         except Exception:
@@ -79,33 +96,56 @@ class FFmpegManager:
         """
         Recupera l'ultima versione FFmpeg dall'API GitHub di BtbN.
         Usata per notificare all'utente se è disponibile un aggiornamento.
+
+        La release 'latest' include asset master senza versione (es. ffmpeg-master-latest-...)
+        e asset con versione (es. ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip): viene
+        restituita la versione più alta trovata tra gli asset win64-gpl-shared.
         """
         try:
             url = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest"
-            with urllib.request.urlopen(url, timeout=GITHUB_API_TIMEOUT) as response:
-                data = json.loads(response.read().decode())
-                assets = data.get("assets", [])
-                for asset in assets:
-                    name = asset.get("name", "")
-                    if "win64-gpl-shared" in name:
-                        match = re.search(r'ffmpeg-(\d+\.\d+\.\d+)', name)
-                        if match:
-                            return match.group(1)
+            response = requests.get(url, timeout=GITHUB_API_TIMEOUT)
+            response.raise_for_status()
+            data = response.json()
+            versions = []
+            for asset in data.get("assets", []):
+                name = asset.get("name", "")
+                if "win64-gpl-shared" not in name:
+                    continue
+                match = re.search(r'ffmpeg-n\d+\.\d+-latest-win64-gpl-shared-(\d+\.\d+)\.zip', name)
+                if match:
+                    versions.append(match.group(1))
+            return max(versions, key=version_tuple) if versions else None
         except Exception:
             pass
         return None
+
+    def _local_ffmpeg_exists(self) -> bool:
+        """Verifica se l'eseguibile FFmpeg configurato o predefinito esiste davvero."""
+        exe = self.ffmpeg_path or self._get_default_path()
+        return bool(exe) and os.path.exists(exe)
 
     def check_for_update(self) -> dict:
         """Confronta le versioni locale e remota per determinare se è disponibile un aggiornamento o un'installazione."""
         local = self.get_local_version()
         remote = self.get_remote_version()
-        return {"update_available": bool(remote and (not local or local != remote)), "local": local, "remote": remote}
+        if not remote:
+            update_available = False
+        elif not local:
+            # Versione locale non riconosciuta (es. build master con git hash):
+            # si propone l'installazione solo se FFmpeg manca del tutto.
+            update_available = not self._local_ffmpeg_exists()
+        else:
+            update_available = version_tuple(local) < version_tuple(remote)
+        return {"update_available": update_available, "local": local, "remote": remote}
 
     def _download_zip(self, url: str, zip_path: str) -> None:
         """Scarica lo zip di FFmpeg con timeout, senza lasciare file parziali in caso di errore."""
-        with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response:
+        with requests.get(url, timeout=DOWNLOAD_TIMEOUT, stream=True) as response:
+            response.raise_for_status()
             with open(zip_path, 'wb') as out_file:
-                shutil.copyfileobj(response, out_file, CHUNK_SIZE)
+                for chunk in response.iter_content(CHUNK_SIZE):
+                    if chunk:
+                        out_file.write(chunk)
 
     def download_and_install(self, prog_dir: Optional[str] = None) -> bool:
         """

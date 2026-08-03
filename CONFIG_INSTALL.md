@@ -25,7 +25,7 @@ Un modulo specializzato per l'astrazione dell'estensione binaria necessaria alla
 ## 🚀 Guida all'Installazione (Sviluppo)
 
 ### Requisiti di Sistema
-- **Python**: Versione 3.8 o superiore.
+- **Python**: Versione 3.10 o superiore (richiesto da yt-dlp).
 - **Sistema Operativo**: Windows 10/11 (raccomandato).
 
 ### Passaggi per l'installazione
@@ -47,15 +47,20 @@ Un modulo specializzato per l'astrazione dell'estensione binaria necessaria alla
 Per distribuire l'applicazione come un singolo file eseguibile per Windows, si raccomanda l'utilizzo di **PyInstaller**.
 
 ### Comando di Compilazione
-Esegui il seguente comando nel terminale (PowerShell):
+Il repository include `gui.spec`, che rileva automaticamente il percorso dei dati di `customtkinter` dall'ambiente di build (nessun path hardcoded). Esegui:
+
 ```powershell
-$ctk_path = python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))"; pyinstaller --noconsole --onefile --add-data "$($ctk_path);customtkinter/" gui.py
+python -m PyInstaller gui.spec
 ```
 
-### Dettagli Tecnici dei Flag:
-- `--noconsole`: Impedisce l'apertura della finestra del terminale (CMD) all'avvio dell'app, mostrando solo la GUI.
-- `--onefile`: Impacchetta tutto in un unico file `.exe` per facilitare la distribuzione.
-- `--add-data`: **Fondamentale**. `customtkinter` richiede i suoi file di temi e asset (JSON, immagini) per renderizzare l'interfaccia correttamente. Il comando PowerShell sopra indicato rileva automaticamente il percorso della libreria nel tuo ambiente Python.
+(Se il comando `pyinstaller` è disponibile nel PATH, funziona anche `pyinstaller gui.spec`.)
+
+L'output è `dist/gui.exe` (single-file, nessuna finestra console).
+
+### Dettagli Tecnici del file `.spec`:
+- `console=False`: Impedisce l'apertura della finestra del terminale (CMD) all'avvio dell'app, mostrando solo la GUI.
+- `onefile`: Impacchetta tutto in un unico file `.exe` per facilitare la distribuzione.
+- `datas`: **Fondamentale**. `customtkinter` richiede i suoi file di temi e asset (JSON, immagini) per renderizzare l'interfaccia correttamente. Il percorso è rilevato automaticamente a build time da `gui.spec`.
 
 ### Gestione dei Binari FFmpeg
 L'eseguibile creato non include FFmpeg al suo interno per evitare dimensioni eccessive. L'applicazione gestirà automaticamente:
